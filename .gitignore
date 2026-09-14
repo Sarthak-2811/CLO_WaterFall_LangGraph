@@ -188,5 +188,14 @@ pip-selfcheck.json
 # End of https://www.toptal.com/developers/gitignore/api/python,venv
 
 
-data/
+data/raw_indentures
+data/vector_store
+data/workflow_threads.db
+data/workflow_threads.db-shm
+data/workflow_threads.db-wal
+data/.DS_Store
+.DS_Store
+
+
 .streamlit/
+test_pdfs/

@@ -1,84 +1,95 @@
-# CLO Waterfall Simulator — Agentic AI Structuring Desk
+# CLO Waterfall Simulator
 
-A LangGraph multi-agent pipeline that reads a CLO indenture PDF, writes and
-runs a Monte Carlo simulation of the waterfall, rating-checks every tranche,
-autonomously resizes the structure until it passes, then stress-tests the
-approved deal across recession scenarios and writes a grounded executive
-report. Runs entirely on free Groq inference.
+An agentic AI workflow built with LangGraph, LangChain, and Streamlit to extract, simulate, optimize, and stress-test Collateralized Loan Obligation (CLO) indentures from raw PDFs.
 
-## What changed from the original draft
+## 🚀 Overview
 
-The original codebase had the right shape (Parser → Quant → Critic → loop →
-Reporter) but several load-bearing pieces were either dead code or missing
-outright:
+The CLO Waterfall Simulator is a multi-agent system designed to replace the manual, error-prone process of modeling structured finance vehicles. By ingesting a 300+ page legal indenture, the system automatically:
+1. Extracts the capital structure and waterfall rules.
+2. Generates and executes a custom Python Monte Carlo simulation.
+3. Iteratively resizes the deal structure until it passes rating-agency loss thresholds.
+4. Stress-tests the approved structure across severe macroeconomic scenarios.
+5. Generates a fully grounded, hallucination-free executive report.
 
-| Problem | Fix |
-|---|---|
-| `default_correlation` / `base_recovery_rate` existed in state but the Quant prompt hardcoded 2%/70% anyway | Quant now reads `current_default_rate`, `base_recovery_rate`, `default_correlation` from state and forces them into the generated script as named constants (`ANNUAL_DEFAULT_PROB`, `RECOVERY_RATE`, `DEFAULT_CORRELATION`) |
-| Critic only ever checked the single senior tranche against one hardcoded 0.01% threshold | `src/config/rating_thresholds.py` gives every rating bucket (AAA/AA/A/BBB/BB/B) its own loss threshold; `critic_agent.py` checks **every rated tranche**, not just the senior one |
-| Critic's tranche resize was free text baked into the next script — `parsed_waterfall` in state never actually changed | New `current_tranches` field in `GraphState`, updated by a **structured** Critic output (`StructuralAdjustment` Pydantic model) with a deterministic zero-sum correction pass, not trusted LLM arithmetic |
-| No iteration history — Reporter had to invent the "Delta" and "Iteration-by-Iteration" sections | `iteration_history` accumulates a real snapshot every structural loop; Reporter is told to use it as its only source of truth |
-| No real macro scenario data — the "Macroeconomic Scenario Analysis" section was pure hallucination since only one simulation ever ran | New `stress_test_agent.py` node re-executes the exact **approved** code with base/mild/severe/extreme default & recovery assumptions substituted in, so the Reporter has real numbers |
-| Sandbox was a regex blocklist over source text (`_check_for_dangerous_imports`) — bypassable with `__import__('os')` etc. | `python_repl.py` rewritten to run with a restricted `__builtins__` and a whitelist `__import__`, plus a wall-clock timeout |
-| One shared iteration counter for both LLM code-errors and structural rejections | Split into `iteration_count` (structural/Critic loop, capped at `MAX_ITERATIONS`) and `code_retry_count` (Quant syntax/runtime retries, capped separately) |
-| `app.py` hand-rolled its own copy of the initial state dict, separate from `src/main.py`, and had already drifted | Both now build from `src.main.make_initial_state(...)` |
+## ✨ Key Features
 
-## Architecture
+* **Hybrid Document Parsing:** Combines deterministic regex for numerical accuracy (tranche sizes, spreads) with a local HuggingFace ChromaDB RAG pipeline for complex legal rules (coverage tests, fees).
+* **Generative Quant Engine:** Dynamically writes Pandas/Numpy simulation scripts utilizing a single-factor Gaussian copula to model correlated obligor defaults.
+* **Sandboxed Execution:** Safely executes AI-generated code locally with strict module whitelisting, stripped built-ins, and wall-clock timeouts.
+* **Automated Risk Structuring (Critic):** Evaluates loss probabilities against hardcoded Moody's/S&P limits. Automatically proposes zero-sum capital structure adjustments if tranches fail.
+* **Macro Stress Testing:** Re-executes the *exact* approved simulation code under Base, Mild, Severe, and Extreme recession scenarios using deterministic regex variable injection.
+* **Persistent Streaming UI:** A Streamlit interface featuring real-time agent execution streaming, SQLite threaded session memory, and a ReAct Chatbot Copilot to query live simulation data.
 
-```
-START -> Parser -> Quant <-> Quant (code-error retries)
-                     |
-                     v
-                  Critic --(rejected, budget left)--> Quant
-                     |
-            (approved) |  (exhausted budget)
-                     v              \
-              Stress Test        Reporter
-                     |               ^
-                     +---------------+
-```
+## 📦 Prerequisites
 
-- **Parser** — pdfplumber table scan (tranche sizes, ratings, spreads — deterministic,
-  no LLM) + a small RAG/LLM pass for coverage tests, fees, and waterfall metadata.
-- **Quant** — writes a fresh Monte Carlo script each structural iteration, using a
-  single-factor Gaussian copula for correlated defaults, executed in the sandboxed
-  REPL.
-- **Critic** — checks every rated tranche's loss probability against its rating
-  threshold; on failure, returns a structured, zero-sum-validated resize plus
-  cash-sweep instructions for the next Quant pass.
-- **Stress Test** — once approved, reruns the *same* approved code under four
-  macro scenarios (base/mild/severe/extreme) by substituting the default-rate and
-  recovery-rate constants.
-- **Reporter** — writes the executive summary strictly from the accumulated
-  iteration log and scenario results (no invented numbers).
+* Python 3.10+
+* Groq API Key (for `openai/gpt-oss-120b` or equivalent models)
+* (Optional) HuggingFace token
 
-## Setup
+## 🛠️ Installation
 
+1. **Clone the repository and set up a virtual environment:**
+   ```bash
+   git clone <your-repo-url>
+   cd clo_simulator
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+   *(Ensure `langgraph-checkpoint-sqlite` and `pypdf` are included in your environment).*
+
+3. **Configure Environment Variables:**
+   Create a `.env` file in the root directory:
+   ```env
+   GROQ_API_KEY=your_groq_api_key_here
+   CLO_CHROMA_ROOT=./data/vector_store
+   ```
+
+4. **Disable Streamlit File Watcher (Optional but recommended to prevent Torchvision warnings):**
+   Create `.streamlit/config.toml`:
+   ```toml
+   [server]
+   fileWatcherType = "none"
+   ```
+
+## 🏃‍♂️ Usage
+
+### Web Interface (Recommended)
+Launch the persistent, multi-threaded Streamlit application:
 ```bash
-pip install -r requirements.txt
-cp .env.example .env   # add your free Groq key: https://console.groq.com/keys
-```
-
-## Run
-
-```bash
-# CLI, single PDF:
-python -m src.main path/to/indenture.pdf
-
-# Full UI, multi-thread, chat-with-your-deal:
 streamlit run app.py
 ```
+* Upload your CLO Indenture PDF via the sidebar.
+* Adjust base macroeconomic assumptions.
+* Click **Run Analysis** to watch the agents stream their progress.
+* Use the **AI Assistant** tab to chat with the document and simulation results.
 
-## Notes / known limits
+### Command Line Interface
+Run the analysis headless from the terminal:
+```bash
+python -m src.main path/to/your/indenture.pdf
+```
 
-- The Python sandbox (`src/tools/python_repl.py`) restricts builtins and imports,
-  but it's still `exec()` in-process. Fine for your own test PDFs; if you ever
-  point this at untrusted documents, move execution to a separate locked-down
-  process or container.
-- Rating thresholds in `src/config/rating_thresholds.py` are illustrative
-  approximations of published idealized-loss tables, not the real agency numbers
-  — swap in your own if you need this to be more than a demo.
-- When a tranche's rating isn't stated verbatim in the PDF, it's inferred from
-  class-name convention (Class A → AAA, Class B → AA, ...) and flagged as
-  `rating_inferred: true` everywhere it's used, so it's never silently treated
-  as an extracted fact.
+## 📁 Repository Structure
+
+* `app.py`: Streamlit frontend and Chatbot UI.
+* `src/main.py`: LangGraph state machine definition and routing logic.
+* `src/state.py`: TypedDict defining the shared memory for the agents.
+* `src/agents/`:
+  * `parser_agent.py`: PDF extraction and RAG querying.
+  * `quant_agent.py`: Monte Carlo Python code generation.
+  * `critic_agent.py`: Rating threshold evaluation and zero-sum restructuring.
+  * `stress_test_agent.py`: Multi-scenario execution.
+  * `reporter_agent.py`: Executive summary generation.
+  * `chatbot_agent.py`: ReAct assistant for the Streamlit UI.
+* `src/tools/`:
+  * `python_repl.py`: Secure Python execution sandbox.
+  * `retriever.py`: PDF table extraction and ChromaDB management.
+* `src/schemas/`: Pydantic models enforcing agent I/O contracts.
+
+## 🛡️ Architecture
+For a deep dive into the multi-agent workflow and data pipeline, see [ARCHITECTURE.md](ARCHITECTURE.md).
