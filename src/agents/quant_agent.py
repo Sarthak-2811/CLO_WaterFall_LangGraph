@@ -60,8 +60,7 @@ RULES:
 4. Model correlated defaults with a single-factor Gaussian copula: draw one systemic factor per path and one idiosyncratic factor per obligor, combine with weight sqrt(DEFAULT_CORRELATION) on the systemic factor, and map through the normal CDF (using `norm.cdf` and `norm.ppf` from `scipy.stats`) against ANNUAL_DEFAULT_PROB to get each obligor's default indicator. Do NOT simulate defaults as independent iid draws -- that materially understates tail risk for a rated structure.
 5. Calculate the probability of principal loss (dollar loss > 0) for EACH tranche.
 6. WATERFALL LOSS ORDER -- losses are absorbed BOTTOM-UP: Equity/Subordinated takes the FIRST losses, then Mezzanine/Junior tranches (e.g. Class C, then Class B), Senior tranches (e.g. Class A-1/AAA) take the LAST losses. Never reverse this.
-7. If the JSON includes coverage_tests (OC/IC), implement them: when a test breaches on a given path, halt further Equity distributions on that path for the remainder of its life and redirect that cash to pay down Senior principal instead, per this Critic guidance:
-   {critic_feedback}
+7. If the Critic's feedback (provided below in the human message) includes a cash-sweep or interest-diversion instruction, you MUST implement it in code exactly as described. If there is no such instruction, apply the basic bottom-up loss waterfall.
 8. DO NOT make network calls.
 9. CRITICAL: You MUST print the final result to stdout as the LAST line via `print(json.dumps(results_dict))`. Keys = tranche class_name, values = probability of loss (float 0..1). If you fail to print a valid JSON object, the system will crash.
 10. Do not embed the raw rules JSON string in your code -- extract the numbers you need and define them as plain Python variables.
@@ -73,7 +72,13 @@ RULES:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
-        ("human", "Capital Structure & Rules:\n{rules}\n\nExecution errors from the previous attempt (fix these if present):\n{errors}\n\nWrite the Python simulation code.")
+        ("human", (
+            "Capital Structure & Rules:\n{rules}\n\n"
+            "Critic Feedback & Cash-Sweep Instructions from the previous iteration "
+            "(IMPLEMENT THESE IN CODE if any are given):\n{critic_feedback}\n\n"
+            "Execution errors from the previous attempt (fix these if present):\n{errors}\n\n"
+            "Write the Python simulation code."
+        ))
     ])
 
     chain = prompt | llm

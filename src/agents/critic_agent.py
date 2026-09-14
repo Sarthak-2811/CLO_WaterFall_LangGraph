@@ -110,7 +110,9 @@ def critic_agent(state: GraphState) -> Dict[str, Any]:
 CRITICAL RULES:
 1. NO HARDCODED ASSUMPTIONS: only work with the tranche sizes, ratings, and triggers given to you.
 2. ZERO-SUM: your tranche_adjustments must keep the total capital structure equal to the Total Target Par. If you shrink a tranche, grow another (typically the Equity/Subordinated tranche) by the same amount.
-3. Prefer dynamic cash-flow mechanics over pure resizing: an interest-diversion/cash-sweep that halts Equity distributions and pays down Senior principal when OC/IC tests breach is usually a better fix than just shrinking Senior.
+3. Choose the right lever based on breach severity:
+   - If observed loss probability is LESS THAN 5x the threshold: prefer an interest-diversion/cash-sweep strategy. Leave tranche_adjustments empty and provide detailed cash_sweep_instructions.
+   - If observed loss probability is MORE THAN 5x the threshold (as in catastrophically mis-sized structures): you MUST also resize tranches. Shrink the oversized senior tranche significantly (e.g. by 30-50%) and grow the Equity/Subordinated tranche by the same amount. Include this in tranche_adjustments AND provide cash_sweep_instructions.
 4. Only include tranches you are actually changing in tranche_adjustments.
 """
     total_par = (rules or {}).get("total_target_par")
