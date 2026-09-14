@@ -117,17 +117,23 @@ CRITICAL RULES:
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
         ("human", (
-            f"Total Target Par (fixed): {total_par}\n"
-            f"Current Tranches:\n{json.dumps(tranches, indent=2)}\n\n"
-            f"Rating Threshold Breaches:\n{json.dumps(breaches, indent=2)}\n\n"
-            f"Full Simulation Results: {json.dumps(results)}\n"
-            f"Iteration: {iteration}\n\n"
+            "Total Target Par (fixed): {total_par}\n"
+            "Current Tranches:\n{tranches_json}\n\n"
+            "Rating Threshold Breaches:\n{breaches_json}\n\n"
+            "Full Simulation Results: {results_json}\n"
+            "Iteration: {iteration}\n\n"
             "Propose the structural adjustment."
         ))
     ])
 
     try:
-        adjustment: StructuralAdjustment = (prompt | structured_llm).invoke({})
+        adjustment: StructuralAdjustment = (prompt | structured_llm).invoke({
+            "total_par": total_par,
+            "tranches_json": json.dumps(tranches, indent=2),
+            "breaches_json": json.dumps(breaches, indent=2),
+            "results_json": json.dumps(results),
+            "iteration": iteration
+        })
     except Exception as e:
         logger.error(f"[Critic] Structured output failed: {e}")
         feedback = f"Critic LLM failed to produce a structured adjustment ({e}). Retrying next iteration with structure unchanged."

@@ -61,6 +61,19 @@ Maintain a professional, analytical, objective tone."""
         ))
     ])
 
+    # Slim down history to avoid exceeding the model's token limit.
+    # Keep only the fields the LLM actually needs for the narrative;
+    # full tranche snapshots and raw simulation arrays are redundant here.
+    compact_history = [
+        {
+            "iteration": e.get("iteration"),
+            "status": e.get("status"),
+            "breaches": e.get("breaches", []),
+            "critic_feedback": e.get("critic_feedback", ""),
+        }
+        for e in history
+    ]
+
     chain = prompt | llm
     response = chain.invoke({
         "converged": converged,
@@ -68,7 +81,7 @@ Maintain a professional, analytical, objective tone."""
         "results": json.dumps(results, indent=2) if results else "{}",
         "iterations": iterations,
         "max_iterations": max_iterations,
-        "history": json.dumps(history, indent=2),
+        "history": json.dumps(compact_history, indent=2),
         "macro": json.dumps(macro, indent=2),
     })
 

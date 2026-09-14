@@ -1,5 +1,6 @@
 # Core agent graph
 langgraph>=0.2.0
+langgraph-checkpoint-sqlite>=2.0.0  # ADDED: Required for SqliteSaver in Streamlit
 langchain-core>=0.3.0
 langchain-groq>=0.2.0
 langchain-text-splitters>=0.3.0
@@ -13,10 +14,12 @@ sentence-transformers>=3.0.0
 
 # PDF parsing
 pdfplumber>=0.11.0
+pypdf>=5.0.0  # ADDED: Required for LangChain's PyPDFLoader fallback
 
 # Simulation
 numpy>=1.26.0
 pandas>=2.2.0
+scipy>=1.10.0
 
 # Schemas
 pydantic>=2.7.0

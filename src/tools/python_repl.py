@@ -27,8 +27,49 @@ import json
 import signal
 import traceback
 from typing import Dict, Any, Tuple, Optional
+import threading
 
-ALLOWED_MODULES = {"numpy", "pandas", "json", "math", "random", "itertools", "statistics"}
+def execute_simulation_code(code: str) -> Tuple[bool, Dict[str, Any], str]:
+    """Executes generated code in a restricted namespace with a wall-clock timeout."""
+    sandbox_globals = _build_sandbox_globals()
+    stdout_buf = io.StringIO()
+
+    # 1. Strictly verify we are in the main thread before allowing signals
+    is_main_thread = threading.current_thread() is threading.main_thread()
+    timer_supported = hasattr(signal, "SIGALRM") and is_main_thread
+    
+    old_handler = None
+    try:
+        # 2. Only set the alarm if we are safely in the main thread
+        if timer_supported:
+            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(EXECUTION_TIMEOUT_SECONDS)
+
+        with contextlib.redirect_stdout(stdout_buf):
+            exec(code, sandbox_globals)
+
+    except _Timeout as e:
+        return False, {}, str(e)
+    except ImportError as e:
+        return False, {}, str(e)
+    except Exception as e:
+        error_msg = f"{type(e).__name__}: {str(e)}\n" + traceback.format_exc()
+        return False, {}, error_msg
+    finally:
+        # 3. CRITICAL: Only attempt to turn off the alarm if we were allowed to turn it on!
+        if timer_supported:
+            signal.alarm(0)
+            if old_handler is not None:
+                signal.signal(signal.SIGALRM, old_handler)
+
+    stdout = stdout_buf.getvalue()
+    result_dict = _extract_last_json(stdout)
+    if result_dict is not None:
+        return True, result_dict, ""
+    return False, {}, f"Execution succeeded, but no valid JSON object found in stdout:\n{stdout}"
+
+
+ALLOWED_MODULES = {"numpy", "pandas", "scipy", "json", "math", "random", "itertools", "statistics"}
 EXECUTION_TIMEOUT_SECONDS = 30
 
 _SAFE_BUILTIN_NAMES = [
@@ -64,7 +105,7 @@ def _build_sandbox_globals() -> Dict[str, Any]:
     safe_builtins["True"] = True
     safe_builtins["False"] = False
     safe_builtins["None"] = None
-    return {"__builtins__": safe_builtins}
+    return {"__builtins__": safe_builtins, "__name__": "__main__"}
 
 
 def _extract_last_json(stdout: str) -> Optional[Dict[str, Any]]:
@@ -78,37 +119,3 @@ def _extract_last_json(stdout: str) -> Optional[Dict[str, Any]]:
                 continue
     return None
 
-
-def execute_simulation_code(code: str) -> Tuple[bool, Dict[str, Any], str]:
-    """Executes generated code in a restricted namespace with a wall-clock timeout."""
-    sandbox_globals = _build_sandbox_globals()
-    stdout_buf = io.StringIO()
-
-    timer_supported = hasattr(signal, "SIGALRM")
-    old_handler = None
-    try:
-        if timer_supported:
-            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-            signal.alarm(EXECUTION_TIMEOUT_SECONDS)
-
-        with contextlib.redirect_stdout(stdout_buf):
-            exec(code, sandbox_globals)
-
-    except _Timeout as e:
-        return False, {}, str(e)
-    except ImportError as e:
-        return False, {}, str(e)
-    except Exception as e:
-        error_msg = f"{type(e).__name__}: {str(e)}\n" + traceback.format_exc()
-        return False, {}, error_msg
-    finally:
-        if timer_supported:
-            signal.alarm(0)
-            if old_handler is not None:
-                signal.signal(signal.SIGALRM, old_handler)
-
-    stdout = stdout_buf.getvalue()
-    result_dict = _extract_last_json(stdout)
-    if result_dict is not None:
-        return True, result_dict, ""
-    return False, {}, f"Execution succeeded, but no valid JSON object found in stdout:\n{stdout}"

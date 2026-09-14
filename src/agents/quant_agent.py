@@ -47,7 +47,7 @@ def quant_agent(state: GraphState) -> Dict[str, Any]:
 
     llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0.0)
 
-    system_prompt = f"""You are an elite Quantitative Developer at a top-tier Investment Bank.
+    system_prompt = """You are an elite Quantitative Developer at a top-tier Investment Bank.
 Write a standalone Python script to run a Monte Carlo simulation of a CLO Waterfall.
 
 RULES:
@@ -57,17 +57,18 @@ RULES:
    ANNUAL_DEFAULT_PROB = {default_rate}
    RECOVERY_RATE = {recovery_rate}
    DEFAULT_CORRELATION = {correlation}
-4. Model correlated defaults with a single-factor Gaussian copula: draw one systemic factor per path and one idiosyncratic factor per obligor, combine with weight sqrt(DEFAULT_CORRELATION) on the systemic factor, and map through the normal CDF against ANNUAL_DEFAULT_PROB to get each obligor's default indicator. Do NOT simulate defaults as independent iid draws -- that materially understates tail risk for a rated structure.
+4. Model correlated defaults with a single-factor Gaussian copula: draw one systemic factor per path and one idiosyncratic factor per obligor, combine with weight sqrt(DEFAULT_CORRELATION) on the systemic factor, and map through the normal CDF (using `norm.cdf` and `norm.ppf` from `scipy.stats`) against ANNUAL_DEFAULT_PROB to get each obligor's default indicator. Do NOT simulate defaults as independent iid draws -- that materially understates tail risk for a rated structure.
 5. Calculate the probability of principal loss (dollar loss > 0) for EACH tranche.
 6. WATERFALL LOSS ORDER -- losses are absorbed BOTTOM-UP: Equity/Subordinated takes the FIRST losses, then Mezzanine/Junior tranches (e.g. Class C, then Class B), Senior tranches (e.g. Class A-1/AAA) take the LAST losses. Never reverse this.
 7. If the JSON includes coverage_tests (OC/IC), implement them: when a test breaches on a given path, halt further Equity distributions on that path for the remainder of its life and redirect that cash to pay down Senior principal instead, per this Critic guidance:
    {critic_feedback}
 8. DO NOT make network calls.
-9. Print the final result to stdout as the LAST line via `print(json.dumps(results_dict))`. Keys = tranche class_name, values = probability of loss (float 0..1).
+9. CRITICAL: You MUST print the final result to stdout as the LAST line via `print(json.dumps(results_dict))`. Keys = tranche class_name, values = probability of loss (float 0..1). If you fail to print a valid JSON object, the system will crash.
 10. Do not embed the raw rules JSON string in your code -- extract the numbers you need and define them as plain Python variables.
 11. Output ONLY pure Python code. No markdown fences.
-12. Include `import json`, `import numpy as np`, `import pandas as pd` at the top. You may also use `import math` and `import random` if needed -- no other imports are permitted.
+12. Include `import json`, `import numpy as np`, `import pandas as pd`, and `from scipy.stats import norm` at the top. You may also use `import math` and `import random` if needed -- no other imports are permitted.
 13. NO HARDCODED ASSUMPTIONS beyond the three named constants above: if a trigger/fee/spread is null in the JSON, treat it as 0 / excluded -- never invent a market-standard number for it.
+14. DO NOT use `if __name__ == '__main__':` guards. All code runs at the module level inside exec(); place your simulation logic and final print() call at the top level, not inside any guard block.
 """
 
     prompt = ChatPromptTemplate.from_messages([
@@ -76,7 +77,14 @@ RULES:
     ])
 
     chain = prompt | llm
-    response = chain.invoke({"rules": rules_json, "errors": execution_error})
+    response = chain.invoke({
+        "rules": rules_json, 
+        "errors": execution_error,
+        "default_rate": default_rate,
+        "recovery_rate": recovery_rate,
+        "correlation": correlation,
+        "critic_feedback": critic_feedback
+    })
     generated_code = response.content.replace("```python", "").replace("```", "").strip()
 
     success, results, error_msg = execute_simulation_code(generated_code)
